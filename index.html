@@ -138,6 +138,15 @@
       box-shadow: 0 0 7px rgba(34, 211, 238, 0.55);
     }
 
+    #debug-line {
+      text-align: center;
+      font-size: 11px;
+      color: #6b7280;
+      min-height: 14px;
+      margin-bottom: 4px;
+      font-family: monospace;
+    }
+
     /* Status + result */
     #status-text {
       text-align: center;
@@ -274,7 +283,10 @@
     <!-- Header -->
     <div id="header">
       <h1>Barcode Reader</h1>
-      <button id="info-btn" title="Detection method info">i</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="version-tag" style="font-size:10px;color:#4b5563;font-family:monospace"></span>
+        <button id="info-btn" title="Detection method info">i</button>
+      </div>
     </div>
 
     <!-- Camera -->
@@ -295,6 +307,7 @@
         <span class="dot" id="dot-1"></span>
         <span class="dot" id="dot-2"></span>
       </div>
+      <div id="debug-line"></div>
       <div id="status-text">Press Scan to begin</div>
       <div id="result-display"></div>
       <button id="scan-btn">Scan</button>
@@ -338,7 +351,9 @@
   <script>
     'use strict';
 
-    const APP_VERSION = 'barcode-reader-v1';
+    const APP_VERSION = 'barcode-reader-v2';
+
+    document.getElementById('version-tag').textContent = APP_VERSION;
 
     // ── DOM refs ───────────────────────────────────────────────────────────────
     const video         = document.getElementById('video');
@@ -353,6 +368,7 @@
     const errorTitle    = document.getElementById('error-title');
     const infoPanel     = document.getElementById('info-panel');
     const dots          = [0, 1, 2].map(i => document.getElementById('dot-' + i));
+    const debugLine     = document.getElementById('debug-line');
 
     // ── App state ──────────────────────────────────────────────────────────────
     let phase        = 'idle';   // 'idle' | 'scanning' | 'looking' | 'found'
@@ -368,13 +384,14 @@
 
     function initZXing() {
       if (typeof ZXing === 'undefined') {
-        console.error('ZXing library failed to load from CDN.');
+        debugLine.textContent = 'ZXing: failed to load from CDN';
         return;
       }
       try {
         codeReader = new ZXing.BrowserMultiFormatReader();
+        debugLine.textContent = 'ZXing: ready';
       } catch (e) {
-        console.error('ZXing BrowserMultiFormatReader init failed:', e);
+        debugLine.textContent = 'ZXing init error: ' + e.message;
       }
     }
 
@@ -543,26 +560,47 @@
     }
 
     // ── Decode one frame ───────────────────────────────────────────────────────
+    // Scans the full video frame — simpler and more reliable than cropping,
+    // especially on iOS where coordinate mapping can vary by device/orientation.
+    // The rectangle on screen acts as a placement guide for the user.
     function decodeFrame() {
-      if (!codeReader || !cameraReady) return null;
-      if (video.readyState < 2) return null;   // HAVE_CURRENT_DATA
+      if (!codeReader) {
+        debugLine.textContent = 'ZXing not ready';
+        return null;
+      }
+      if (!cameraReady) {
+        debugLine.textContent = 'Camera not ready';
+        return null;
+      }
+      if (video.readyState < 2) {
+        debugLine.textContent = 'Video readyState: ' + video.readyState;
+        return null;
+      }
+      if (!video.videoWidth || !video.videoHeight) {
+        debugLine.textContent = 'Video size: 0x0';
+        return null;
+      }
 
-      const rect = getScanRectInVideoCoords();
-      if (!rect) return null;
-
-      decodeCanvas.width  = rect.w;
-      decodeCanvas.height = rect.h;
-      decodeCtx.drawImage(
-        video,
-        rect.x, rect.y, rect.w, rect.h,
-        0,      0,      rect.w, rect.h
-      );
+      // Draw full video frame to decode canvas
+      decodeCanvas.width  = video.videoWidth;
+      decodeCanvas.height = video.videoHeight;
+      decodeCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
 
       try {
         const result = codeReader.decodeFromCanvas(decodeCanvas);
-        return result ? result.getText() : null;
-      } catch (_) {
-        return null;   // NotFoundException is normal; any other error — ignore
+        if (!result) return null;
+        // Handle both method and property forms across ZXing versions
+        const text = typeof result.getText === 'function'
+          ? result.getText()
+          : result.text;
+        debugLine.textContent = 'Found: ' + text;
+        return text || null;
+      } catch (e) {
+        // NotFoundException is normal (no barcode visible) — show only unexpected errors
+        if (e.name !== 'NotFoundException') {
+          debugLine.textContent = e.name + ': ' + (e.message || '').slice(0, 40);
+        }
+        return null;
       }
     }
 
@@ -573,10 +611,15 @@
       updateUI();
       startOverlayAnimation();
 
+      let tick = 0;
       scanInterval = setInterval(() => {
         if (phase !== 'scanning') return;
+        tick++;
 
         const barcode = decodeFrame();
+        if (!barcode && !debugLine.textContent.startsWith('Found')) {
+          debugLine.textContent = 'scanning… tick ' + tick;
+        }
 
         if (barcode) {
           const last = samples[samples.length - 1];
