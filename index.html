@@ -351,7 +351,7 @@
   <script>
     'use strict';
 
-    const APP_VERSION = 'barcode-reader-v3';
+    const APP_VERSION = 'barcode-reader-v4';
 
     document.getElementById('version-tag').textContent = APP_VERSION;
 
@@ -381,18 +381,23 @@
     let animFrame    = null;
 
     // ── ZXing init ─────────────────────────────────────────────────────────────
+    // Uses the low-level MultiFormatReader API — BrowserMultiFormatReader's
+    // decodeFromCanvas was removed in ZXing 0.18+.
     let codeReader = null;
 
     function initZXing() {
       if (typeof ZXing === 'undefined') {
-        debugLine.textContent = 'ZXing: failed to load from CDN';
+        decodeError = 'ZXing failed to load from CDN';
+        debugLine.textContent = decodeError;
         return;
       }
       try {
-        codeReader = new ZXing.BrowserMultiFormatReader();
+        codeReader = new ZXing.MultiFormatReader();
+        codeReader.setHints(new Map());   // default hints — decode all formats
         debugLine.textContent = 'ZXing: ready';
       } catch (e) {
-        debugLine.textContent = 'ZXing init error: ' + e.message;
+        decodeError = 'ZXing init: ' + e.message;
+        debugLine.textContent = decodeError;
       }
     }
 
@@ -562,16 +567,10 @@
 
     // ── Decode one frame ───────────────────────────────────────────────────────
     function decodeFrame() {
-      if (!codeReader)   { decodeError = 'no codeReader';    return null; }
-      if (!cameraReady)  { decodeError = 'camera not ready'; return null; }
+      if (!codeReader)          { decodeError = 'no codeReader';    return null; }
+      if (!cameraReady)         { decodeError = 'camera not ready'; return null; }
       if (video.readyState < 2) { decodeError = 'readyState=' + video.readyState; return null; }
-      if (!video.videoWidth)    { decodeError = 'videoWidth=0'; return null; }
-
-      // Confirm the method actually exists before calling it
-      if (typeof codeReader.decodeFromCanvas !== 'function') {
-        decodeError = 'decodeFromCanvas missing — ZXing API mismatch';
-        return null;
-      }
+      if (!video.videoWidth)    { decodeError = 'videoWidth=0';     return null; }
 
       // Draw full video frame to decode canvas
       decodeCanvas.width  = video.videoWidth;
@@ -579,7 +578,10 @@
       decodeCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
 
       try {
-        const result = codeReader.decodeFromCanvas(decodeCanvas);
+        // Low-level ZXing API — works across all versions
+        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(decodeCanvas);
+        const binaryBitmap    = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+        const result          = codeReader.decode(binaryBitmap);
         if (!result) return null;
         const text = typeof result.getText === 'function' ? result.getText() : result.text;
         decodeError = '';
