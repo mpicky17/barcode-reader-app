@@ -1,0 +1,56 @@
+AI Prompts — Barcode Reader App
+================================
+Created: 2026-04-10
+Model: Claude Sonnet 4.6 (claude-sonnet-4-6)
+
+── Original feature request ────────────────────────────────────────────────
+
+Build an application in a new folder called "barcode-reader-app" on the desktop that can do the following:
+
+- Use the camera on an iphone or android to read a barcode for groceries
+  (food, drink, toiletries, etc.)
+- The camera screen appears on the phone with a rectangle in the center of
+  the screen where the user should place the barcode
+- Every 0.5 seconds analyze the picture within the rectangle for a readable
+  barcode
+- Indicate whether the preferred OCR detection method requires access to a
+  paid-for AI model and whether a solution exists that does not require a
+  paid model that is expected to provide similar capability
+- Once 3 samples in a row return the same barcode, look that barcode up and
+  return the name to the screen or return "UPC Not found" if it could not
+  be matched
+- Have a button on the screen that says "Scan" to initiate each new sample
+- Not yet but eventually will merge this capability with the folder on the
+  desktop "my-checklist-app", which is an iphone/android grocery checklist
+  app, to add and remove quantities from the checklist
+- Use a similar structure for coding as well as version control and github
+  to "my-checklist-app" to allow for future integration
+
+── Tech decisions ───────────────────────────────────────────────────────────
+
+Barcode detection:
+  ZXing-js (@zxing/library@0.21.3) via CDN — free, open-source, no paid AI.
+  Native BarcodeDetector API skipped: not supported on iOS Safari.
+
+Product lookup:
+  Primary:  Open Food Facts API (free, no auth, CORS-friendly)
+  Fallback: UPCitemdb free tier (100 req/day)
+  Skipped:  barcodelookup.com — paid API ($99+/month) + CORS blocked from browser
+
+Structure:
+  Mirrors my-checklist-app: single HTML file, vanilla JS, no build step,
+  PWA-ready (manifest + service worker), Netlify-deployable.
+
+── Deployment notes ─────────────────────────────────────────────────────────
+
+1. Run: node generate-icons.js   (creates icon-192.png and icon-512.png)
+2. Push to GitHub: mpicky17/barcode-reader-app
+3. Deploy on Netlify (drag-and-drop or connect repo)
+4. Test on phone: allow camera → scan a grocery barcode
+
+── Version bumping ──────────────────────────────────────────────────────────
+
+When deploying updates:
+  1. Bump APP_VERSION in index.html  (e.g. barcode-reader-v2)
+  2. Bump CACHE_NAME in sw.js        (e.g. barcode-reader-v2)
+  3. Commit and push

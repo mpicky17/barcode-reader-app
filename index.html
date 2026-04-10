@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Barcode Reader" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>Barcode Reader</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: #111827;
+      color: #f9fafb;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      background: #1f2937;
+      border-bottom: 1px solid #374151;
+      flex-shrink: 0;
+    }
+
+    #header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f9fafb;
+      letter-spacing: 0.01em;
+    }
+
+    #info-btn {
+      background: none;
+      border: 1px solid #4b5563;
+      border-radius: 50%;
+      color: #9ca3af;
+      font-size: 14px;
+      font-weight: 600;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* ── Camera area ── */
+    #camera-wrapper {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* ── Camera error ── */
+    #camera-error {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: #111827;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      gap: 10px;
+    }
+
+    #camera-error.visible { display: flex; }
+    #camera-error .icon { font-size: 48px; }
+    #camera-error .title { font-size: 16px; font-weight: 600; color: #f9fafb; }
+    #camera-error .msg   { font-size: 13px; color: #9ca3af; line-height: 1.5; }
+
+    /* ── Controls panel ── */
+    #controls {
+      flex-shrink: 0;
+      background: #1f2937;
+      border-top: 1px solid #374151;
+      padding: 14px 16px;
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
+    }
+
+    /* Progress dots */
+    #progress-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: #374151;
+      border: 2px solid #4b5563;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .dot.filled {
+      background: #22d3ee;
+      border-color: #22d3ee;
+      box-shadow: 0 0 7px rgba(34, 211, 238, 0.55);
+    }
+
+    /* Status + result */
+    #status-text {
+      text-align: center;
+      font-size: 13px;
+      color: #9ca3af;
+      min-height: 18px;
+      margin-bottom: 6px;
+    }
+
+    #result-display {
+      text-align: center;
+      font-size: 17px;
+      font-weight: 600;
+      color: #f9fafb;
+      min-height: 26px;
+      margin-bottom: 14px;
+      padding: 0 8px;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
+    #result-display.found     { color: #34d399; }
+    #result-display.not-found { color: #f87171; }
+
+    /* Scan button */
+    #scan-btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      background: #4f46e5;
+      color: #fff;
+      font-size: 17px;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      letter-spacing: 0.02em;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #scan-btn:active { opacity: 0.82; }
+    #scan-btn.cancel { background: #6b7280; }
+    #scan-btn:disabled { opacity: 0.45; cursor: default; }
+
+    /* ── Info panel (bottom sheet) ── */
+    #info-panel {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 200;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    #info-panel.open { display: flex; }
+
+    #info-content {
+      background: #1f2937;
+      border-radius: 20px 20px 0 0;
+      padding: 20px 20px max(20px, env(safe-area-inset-bottom));
+      width: 100%;
+      max-width: 480px;
+    }
+
+    #info-content h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f9fafb;
+      margin-bottom: 8px;
+    }
+
+    #info-content h2:not(:first-child) { margin-top: 16px; }
+
+    #info-content p {
+      font-size: 13px;
+      color: #9ca3af;
+      line-height: 1.6;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #064e3b;
+      color: #34d399;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 99px;
+      margin-bottom: 8px;
+      letter-spacing: 0.03em;
+    }
+
+    .badge-warn {
+      background: #422006;
+      color: #fb923c;
+    }
+
+    #info-close {
+      display: block;
+      width: 100%;
+      margin-top: 18px;
+      padding: 12px;
+      background: #374151;
+      color: #f9fafb;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    /* ── Spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #4b5563;
+      border-top-color: #22d3ee;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      vertical-align: -2px;
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+
+    <!-- Header -->
+    <div id="header">
+      <h1>Barcode Reader</h1>
+      <button id="info-btn" title="Detection method info">i</button>
+    </div>
+
+    <!-- Camera -->
+    <div id="camera-wrapper">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="camera-error">
+        <div class="icon">📷</div>
+        <div class="title" id="error-title">Camera access required</div>
+        <div class="msg">Please allow camera access and reload the page. This app requires a rear-facing camera.</div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls">
+      <div id="progress-row">
+        <span class="dot" id="dot-0"></span>
+        <span class="dot" id="dot-1"></span>
+        <span class="dot" id="dot-2"></span>
+      </div>
+      <div id="status-text">Press Scan to begin</div>
+      <div id="result-display"></div>
+      <button id="scan-btn">Scan</button>
+    </div>
+
+  </div>
+
+  <!-- Hidden canvas for ZXing decoding -->
+  <canvas id="decode-canvas" style="display:none"></canvas>
+
+  <!-- Info panel (bottom sheet) -->
+  <div id="info-panel" role="dialog" aria-modal="true">
+    <div id="info-content">
+      <h2>Barcode Detection</h2>
+      <div class="badge">FREE &mdash; No paid AI required</div>
+      <p>
+        Uses <strong>ZXing-js</strong>, a free open-source library that decodes
+        barcodes using traditional image processing — no AI model involved.
+        Supports UPC-A, EAN-13, and all standard grocery barcode formats.
+      </p>
+      <p style="margin-top:8px">
+        Paid AI alternatives (Google Cloud Vision, AWS Rekognition) can also read
+        barcodes but cost money per call and offer <em>no practical advantage</em>
+        over ZXing-js for standard retail barcodes.
+      </p>
+
+      <h2>Product Lookup</h2>
+      <div class="badge">Free APIs &mdash; No key required</div>
+      <p>
+        <strong>Primary:</strong> Open Food Facts (open database, no auth).<br>
+        <strong>Fallback:</strong> UPCitemdb free tier (100 lookups/day).
+      </p>
+
+      <button id="info-close">Close</button>
+    </div>
+  </div>
+
+  <!-- ZXing barcode library (free, open-source) -->
+  <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+
+  <script>
+    'use strict';
+
+    const APP_VERSION = 'barcode-reader-v1';
+
+    // ── DOM refs ───────────────────────────────────────────────────────────────
+    const video         = document.getElementById('video');
+    const overlay       = document.getElementById('overlay');
+    const overlayCtx    = overlay.getContext('2d');
+    const decodeCanvas  = document.getElementById('decode-canvas');
+    const decodeCtx     = decodeCanvas.getContext('2d');
+    const statusText    = document.getElementById('status-text');
+    const resultDisplay = document.getElementById('result-display');
+    const scanBtn       = document.getElementById('scan-btn');
+    const cameraError   = document.getElementById('camera-error');
+    const errorTitle    = document.getElementById('error-title');
+    const infoPanel     = document.getElementById('info-panel');
+    const dots          = [0, 1, 2].map(i => document.getElementById('dot-' + i));
+
+    // ── App state ──────────────────────────────────────────────────────────────
+    let phase        = 'idle';   // 'idle' | 'scanning' | 'looking' | 'found'
+    let samples      = [];       // consecutive matching barcode reads
+    let lastBarcode  = null;
+    let lastProduct  = null;
+    let scanInterval = null;
+    let cameraReady  = false;
+    let animFrame    = null;
+
+    // ── ZXing init ─────────────────────────────────────────────────────────────
+    let codeReader = null;
+
+    function initZXing() {
+      if (typeof ZXing === 'undefined') {
+        console.error('ZXing library failed to load from CDN.');
+        return;
+      }
+      try {
+        codeReader = new ZXing.BrowserMultiFormatReader();
+      } catch (e) {
+        console.error('ZXing BrowserMultiFormatReader init failed:', e);
+      }
+    }
+
+    // ── Camera ─────────────────────────────────────────────────────────────────
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showCameraError('Camera API not supported in this browser.');
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width:  { ideal: 1280 },
+            height: { ideal: 720 },
+          }
+        });
+        video.srcObject = stream;
+        await video.play();
+        cameraReady = true;
+        syncOverlaySize();
+        drawOverlay();
+        scanBtn.disabled = false;
+      } catch (err) {
+        const msg = err.name === 'NotAllowedError'
+          ? 'Camera permission denied'
+          : err.name === 'NotFoundError'
+            ? 'No camera found on this device'
+            : 'Camera unavailable (' + err.name + ')';
+        showCameraError(msg);
+      }
+    }
+
+    function showCameraError(msg) {
+      errorTitle.textContent = msg;
+      cameraError.classList.add('visible');
+      scanBtn.disabled = true;
+    }
+
+    // ── Overlay canvas ─────────────────────────────────────────────────────────
+    function syncOverlaySize() {
+      const wrapper = document.getElementById('camera-wrapper');
+      const w = wrapper.clientWidth;
+      const h = wrapper.clientHeight;
+      if (overlay.width !== w || overlay.height !== h) {
+        overlay.width  = w;
+        overlay.height = h;
+      }
+    }
+
+    // Returns scan rectangle in overlay/display pixels
+    function getScanRect() {
+      const w  = overlay.width  || 1;
+      const h  = overlay.height || 1;
+      const rw = Math.round(w * 0.72);
+      const rh = Math.round(h * 0.38);
+      const rx = Math.round((w - rw) / 2);
+      const ry = Math.round((h - rh) / 2);
+      return { x: rx, y: ry, w: rw, h: rh };
+    }
+
+    function drawOverlay() {
+      syncOverlaySize();
+      const ctx = overlayCtx;
+      const cw  = overlay.width;
+      const ch  = overlay.height;
+      const { x, y, w, h } = getScanRect();
+      const scanning = (phase === 'scanning');
+
+      ctx.clearRect(0, 0, cw, ch);
+
+      // Dark mask over entire canvas
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
+      ctx.fillRect(0, 0, cw, ch);
+
+      // Clear the scan rectangle (transparent window)
+      ctx.clearRect(x, y, w, h);
+
+      // Rectangle border
+      ctx.strokeStyle = scanning ? '#22d3ee' : 'rgba(255,255,255,0.55)';
+      ctx.lineWidth   = scanning ? 2.5 : 1.5;
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+      // Corner accents
+      const cs = Math.round(Math.min(w, h) * 0.12);
+      const cw2 = scanning ? 4 : 3;
+      ctx.strokeStyle = scanning ? '#22d3ee' : '#ffffff';
+      ctx.lineWidth   = cw2;
+      ctx.lineCap     = 'square';
+
+      const corners = [
+        [x,     y,     x + cs, y,     x,     y + cs],
+        [x + w, y,     x+w-cs, y,     x + w, y + cs],
+        [x,     y + h, x + cs, y + h, x,     y+h-cs],
+        [x + w, y + h, x+w-cs, y + h, x + w, y+h-cs],
+      ];
+      corners.forEach(([x1, y1, x2, y2, x3, y3]) => {
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x3, y3);
+        ctx.stroke();
+      });
+
+      // Animated scan line
+      if (scanning) {
+        const progress = (Date.now() % 1600) / 1600;
+        const lineY    = y + Math.round(progress * h);
+        const grad     = ctx.createLinearGradient(x, lineY, x + w, lineY);
+        grad.addColorStop(0,   'rgba(34,211,238,0)');
+        grad.addColorStop(0.4, 'rgba(34,211,238,0.75)');
+        grad.addColorStop(0.6, 'rgba(34,211,238,0.75)');
+        grad.addColorStop(1,   'rgba(34,211,238,0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth   = 2;
+        ctx.beginPath();
+        ctx.moveTo(x,     lineY);
+        ctx.lineTo(x + w, lineY);
+        ctx.stroke();
+      }
+    }
+
+    function startOverlayAnimation() {
+      cancelAnimationFrame(animFrame);
+      (function frame() {
+        drawOverlay();
+        animFrame = requestAnimationFrame(frame);
+      })();
+    }
+
+    function stopOverlayAnimation() {
+      cancelAnimationFrame(animFrame);
+      animFrame = null;
+      drawOverlay();
+    }
+
+    // ── Video → decode-canvas coordinate mapping ───────────────────────────────
+    // The video element uses object-fit:cover, so the rendered frame may be
+    // clipped. We map the scan rect (display px) back to raw video pixels.
+    function getScanRectInVideoCoords() {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const dw = overlay.width;
+      const dh = overlay.height;
+      if (!vw || !vh || !dw || !dh) return null;
+
+      // object-fit: cover scale
+      const scale  = Math.max(dw / vw, dh / vh);
+      const ox     = (dw - vw * scale) / 2;   // negative when clipped
+      const oy     = (dh - vh * scale) / 2;
+
+      const r = getScanRect();
+      const vx = Math.round((r.x - ox) / scale);
+      const vy = Math.round((r.y - oy) / scale);
+      const vww = Math.round(r.w / scale);
+      const vhh = Math.round(r.h / scale);
+
+      // Clamp to valid video bounds
+      const cx = Math.max(0, vx);
+      const cy = Math.max(0, vy);
+      const cw = Math.min(vw - cx, vww - Math.max(0, -vx));
+      const ch = Math.min(vh - cy, vhh - Math.max(0, -vy));
+
+      if (cw <= 0 || ch <= 0) return null;
+      return { x: cx, y: cy, w: cw, h: ch };
+    }
+
+    // ── Decode one frame ───────────────────────────────────────────────────────
+    function decodeFrame() {
+      if (!codeReader || !cameraReady) return null;
+      if (video.readyState < 2) return null;   // HAVE_CURRENT_DATA
+
+      const rect = getScanRectInVideoCoords();
+      if (!rect) return null;
+
+      decodeCanvas.width  = rect.w;
+      decodeCanvas.height = rect.h;
+      decodeCtx.drawImage(
+        video,
+        rect.x, rect.y, rect.w, rect.h,
+        0,      0,      rect.w, rect.h
+      );
+
+      try {
+        const result = codeReader.decodeFromCanvas(decodeCanvas);
+        return result ? result.getText() : null;
+      } catch (_) {
+        return null;   // NotFoundException is normal; any other error — ignore
+      }
+    }
+
+    // ── Scan loop ──────────────────────────────────────────────────────────────
+    function startScanning() {
+      phase   = 'scanning';
+      samples = [];
+      updateUI();
+      startOverlayAnimation();
+
+      scanInterval = setInterval(() => {
+        if (phase !== 'scanning') return;
+
+        const barcode = decodeFrame();
+
+        if (barcode) {
+          const last = samples[samples.length - 1];
+          if (last !== undefined && last !== barcode) {
+            samples = [barcode];          // different barcode — reset streak
+          } else {
+            samples.push(barcode);        // same barcode — extend streak
+          }
+          updateDots();
+
+          if (samples.length >= 3) {
+            stopScanning(false);
+            lookupBarcode(samples[0]);
+          }
+        }
+        // No barcode detected: don't reset streak (motion blur / partial frame)
+      }, 500);
+    }
+
+    function stopScanning(resetPhase = true) {
+      clearInterval(scanInterval);
+      scanInterval = null;
+      stopOverlayAnimation();
+      if (resetPhase) {
+        phase = 'idle';
+        updateUI();
+      }
+    }
+
+    // ── Product lookup ─────────────────────────────────────────────────────────
+    async function lookupBarcode(barcode) {
+      phase = 'looking';
+      lastBarcode = barcode;
+      lastProduct = null;
+      updateUI();
+
+      // Primary: Open Food Facts (free, no auth required)
+      try {
+        const res = await fetch(
+          'https://world.openfoodfacts.org/api/v0/product/' + encodeURIComponent(barcode) + '.json',
+          { signal: AbortSignal.timeout(8000) }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 1 && data.product) {
+            lastProduct = data.product.product_name_en
+                       || data.product.product_name
+                       || null;
+            if (lastProduct) lastProduct = lastProduct.trim() || null;
+          }
+        }
+      } catch (_) { /* network error or timeout */ }
+
+      // Fallback: UPCitemdb (100 free requests/day)
+      if (!lastProduct) {
+        try {
+          const res = await fetch(
+            'https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(barcode),
+            { signal: AbortSignal.timeout(8000) }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+              lastProduct = (data.items[0].title || '').trim() || null;
+            }
+          }
+        } catch (_) { /* network error or timeout */ }
+      }
+
+      phase = 'found';
+      updateUI();
+    }
+
+    // ── UI updates ─────────────────────────────────────────────────────────────
+    function updateUI() {
+      resultDisplay.className = '';
+
+      if (phase === 'idle') {
+        statusText.innerHTML    = 'Press Scan to begin';
+        resultDisplay.textContent = '';
+        scanBtn.textContent     = 'Scan';
+        scanBtn.className       = '';
+        scanBtn.disabled        = !cameraReady;
+
+      } else if (phase === 'scanning') {
+        statusText.innerHTML    = 'Scanning&hellip; hold barcode steady';
+        resultDisplay.textContent = '';
+        scanBtn.textContent     = 'Cancel';
+        scanBtn.className       = 'cancel';
+        scanBtn.disabled        = false;
+
+      } else if (phase === 'looking') {
+        statusText.innerHTML    = '<span class="spinner"></span>Looking up product&hellip;';
+        resultDisplay.textContent = '';
+        scanBtn.textContent     = 'Please wait';
+        scanBtn.className       = 'cancel';
+        scanBtn.disabled        = true;
+
+      } else if (phase === 'found') {
+        statusText.textContent  = 'Barcode: ' + lastBarcode;
+        if (lastProduct) {
+          resultDisplay.textContent = lastProduct;
+          resultDisplay.classList.add('found');
+        } else {
+          resultDisplay.textContent = 'UPC Not found';
+          resultDisplay.classList.add('not-found');
+        }
+        scanBtn.textContent = 'Scan Again';
+        scanBtn.className   = '';
+        scanBtn.disabled    = false;
+      }
+
+      updateDots();
+    }
+
+    function updateDots() {
+      dots.forEach((dot, i) => {
+        dot.classList.toggle('filled', i < samples.length);
+      });
+    }
+
+    // ── Scan button ────────────────────────────────────────────────────────────
+    scanBtn.addEventListener('click', () => {
+      if (phase === 'idle' || phase === 'found') {
+        samples     = [];
+        lastBarcode = null;
+        lastProduct = null;
+        updateDots();
+        startScanning();
+      } else if (phase === 'scanning') {
+        stopScanning(true);
+      }
+    });
+
+    // ── Info panel ─────────────────────────────────────────────────────────────
+    document.getElementById('info-btn').addEventListener('click', () => {
+      infoPanel.classList.add('open');
+    });
+    document.getElementById('info-close').addEventListener('click', () => {
+      infoPanel.classList.remove('open');
+    });
+    infoPanel.addEventListener('click', e => {
+      if (e.target === infoPanel) infoPanel.classList.remove('open');
+    });
+
+    // ── Resize ─────────────────────────────────────────────────────────────────
+    window.addEventListener('resize', () => {
+      syncOverlaySize();
+      drawOverlay();
+    });
+
+    // ── Service Worker ─────────────────────────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .catch(e => console.warn('Service worker registration failed:', e));
+    }
+
+    // ── Boot ───────────────────────────────────────────────────────────────────
+    initZXing();
+    startCamera();
+  </script>
+</body>
+</html>
