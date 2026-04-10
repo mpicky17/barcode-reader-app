@@ -351,7 +351,7 @@
   <script>
     'use strict';
 
-    const APP_VERSION = 'barcode-reader-v4';
+    const APP_VERSION = 'barcode-reader-v5';
 
     document.getElementById('version-tag').textContent = APP_VERSION;
 
@@ -654,37 +654,59 @@
 
       // Primary: Open Food Facts (free, no auth required)
       try {
+        debugLine.textContent = 'Querying Open Food Facts…';
         const res = await fetch(
           'https://world.openfoodfacts.org/api/v0/product/' + encodeURIComponent(barcode) + '.json',
           { signal: AbortSignal.timeout(8000) }
         );
         if (res.ok) {
           const data = await res.json();
+          debugLine.textContent = 'OFF status=' + data.status;
           if (data.status === 1 && data.product) {
-            lastProduct = data.product.product_name_en
-                       || data.product.product_name
-                       || null;
-            if (lastProduct) lastProduct = lastProduct.trim() || null;
+            const p = data.product;
+            // Check all common name fields — some products only populate certain ones
+            const candidate = p.product_name_en
+                           || p.product_name
+                           || p.abbreviated_product_name
+                           || p.generic_name_en
+                           || p.generic_name
+                           || '';
+            lastProduct = candidate.trim() || null;
+            // Last resort: use brand name if no product name found
+            if (!lastProduct && p.brands) {
+              lastProduct = p.brands.split(',')[0].trim() || null;
+            }
           }
+        } else {
+          debugLine.textContent = 'OFF http ' + res.status;
         }
-      } catch (_) { /* network error or timeout */ }
+      } catch (e) {
+        debugLine.textContent = 'OFF err: ' + e.message.slice(0, 40);
+      }
 
       // Fallback: UPCitemdb (100 free requests/day)
       if (!lastProduct) {
         try {
+          debugLine.textContent = 'Querying UPCitemdb…';
           const res = await fetch(
             'https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(barcode),
             { signal: AbortSignal.timeout(8000) }
           );
           if (res.ok) {
             const data = await res.json();
+            debugLine.textContent = 'UPC code=' + data.code;
             if (data.items && data.items.length > 0) {
               lastProduct = (data.items[0].title || '').trim() || null;
             }
+          } else {
+            debugLine.textContent = 'UPC http ' + res.status;
           }
-        } catch (_) { /* network error or timeout */ }
+        } catch (e) {
+          debugLine.textContent = 'UPC err: ' + e.message.slice(0, 40);
+        }
       }
 
+      if (lastProduct) debugLine.textContent = 'lookup OK';
       phase = 'found';
       updateUI();
     }
