@@ -351,7 +351,7 @@
   <script>
     'use strict';
 
-    const APP_VERSION = 'barcode-reader-v2';
+    const APP_VERSION = 'barcode-reader-v3';
 
     document.getElementById('version-tag').textContent = APP_VERSION;
 
@@ -373,6 +373,7 @@
     // ── App state ──────────────────────────────────────────────────────────────
     let phase        = 'idle';   // 'idle' | 'scanning' | 'looking' | 'found'
     let samples      = [];       // consecutive matching barcode reads
+    let decodeError  = '';       // persists across ticks so tick counter can't overwrite it
     let lastBarcode  = null;
     let lastProduct  = null;
     let scanInterval = null;
@@ -560,24 +561,15 @@
     }
 
     // ── Decode one frame ───────────────────────────────────────────────────────
-    // Scans the full video frame — simpler and more reliable than cropping,
-    // especially on iOS where coordinate mapping can vary by device/orientation.
-    // The rectangle on screen acts as a placement guide for the user.
     function decodeFrame() {
-      if (!codeReader) {
-        debugLine.textContent = 'ZXing not ready';
-        return null;
-      }
-      if (!cameraReady) {
-        debugLine.textContent = 'Camera not ready';
-        return null;
-      }
-      if (video.readyState < 2) {
-        debugLine.textContent = 'Video readyState: ' + video.readyState;
-        return null;
-      }
-      if (!video.videoWidth || !video.videoHeight) {
-        debugLine.textContent = 'Video size: 0x0';
+      if (!codeReader)   { decodeError = 'no codeReader';    return null; }
+      if (!cameraReady)  { decodeError = 'camera not ready'; return null; }
+      if (video.readyState < 2) { decodeError = 'readyState=' + video.readyState; return null; }
+      if (!video.videoWidth)    { decodeError = 'videoWidth=0'; return null; }
+
+      // Confirm the method actually exists before calling it
+      if (typeof codeReader.decodeFromCanvas !== 'function') {
+        decodeError = 'decodeFromCanvas missing — ZXing API mismatch';
         return null;
       }
 
@@ -589,16 +581,15 @@
       try {
         const result = codeReader.decodeFromCanvas(decodeCanvas);
         if (!result) return null;
-        // Handle both method and property forms across ZXing versions
-        const text = typeof result.getText === 'function'
-          ? result.getText()
-          : result.text;
+        const text = typeof result.getText === 'function' ? result.getText() : result.text;
+        decodeError = '';
         debugLine.textContent = 'Found: ' + text;
         return text || null;
       } catch (e) {
-        // NotFoundException is normal (no barcode visible) — show only unexpected errors
-        if (e.name !== 'NotFoundException') {
-          debugLine.textContent = e.name + ': ' + (e.message || '').slice(0, 40);
+        if (e.name === 'NotFoundException') {
+          decodeError = '';   // normal — no barcode in frame
+        } else {
+          decodeError = e.name + ': ' + (e.message || '').slice(0, 55);
         }
         return null;
       }
@@ -617,8 +608,11 @@
         tick++;
 
         const barcode = decodeFrame();
-        if (!barcode && !debugLine.textContent.startsWith('Found')) {
-          debugLine.textContent = 'scanning… tick ' + tick;
+        if (!barcode) {
+          // Show persistent error if present; otherwise show tick + video dimensions
+          debugLine.textContent = decodeError
+            ? ('ERR: ' + decodeError)
+            : ('tick ' + tick + ' | ' + video.videoWidth + 'x' + video.videoHeight);
         }
 
         if (barcode) {
